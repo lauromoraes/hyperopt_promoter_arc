@@ -68,7 +68,6 @@ class Optmizer(object):
                 Y_train, Y_test = Y[train_index], Y[test_index]
                 
                 cnt1 += 1
-                cnt2 = 0
 
                 # Folds for train - validation (Guide training phase)
                 folds2 = StratifiedShuffleSplit(n_splits=1, random_state=seed, test_size=0.1)
@@ -80,11 +79,11 @@ class Optmizer(object):
                     in_layer, out_layer = self.architecture.define_architecture(in_shape, hp_params)
                     model = Model([in_layer], [out_layer])
                     model.compile(optimizer='adam', loss='binary_crossentropy')
-#                    print(model.summary)
+                    if cnt1 == 1:
+                        model.summary()
 
                     # Update partition couter
-                    cnt2 += 1
-                    print('Partition', cnt1, cnt2)
+                    print('Partition', cnt1)
 
                     # Get Updated Callbacks
                     calls = get_calls()

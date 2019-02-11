@@ -100,11 +100,11 @@ class ConvArchitecture(Architecture):
         drop = Dropout(.1)(flat)
 
         # Fully connect
-        dense1 = Dense(p['dense01'], activation='relu')(drop)
-        dense2 = Dense(p['dense02'], activation='relu')(dense1)
+        dense = Dense(p['dense01'], activation='relu')(drop)
+        dense = Dense(p['dense02'], activation='relu')(dense)
 
         # Output
-        out_layer = Dense(1, activation='sigmoid')(dense2)
+        out_layer = Dense(1, activation='sigmoid')(dense)
 
         return in_layer, out_layer
 
