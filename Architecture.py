@@ -4,7 +4,7 @@
 from hyperopt import hp
 
 from keras.models import Model
-from keras.layers import Input, Flatten
+from keras.layers import Input, Flatten, Embedding
 from keras.layers.core import Dense, Dropout, Activation
 from keras.layers.convolutional import Conv1D, MaxPooling1D
 
@@ -37,8 +37,6 @@ class MLPArchitecture(Architecture):
     def define_architecture(self, in_shape, hp_params):
         p = hp_params
 
-        print('>>> Testing parameters: Dense1({}), Dense2({})'.format(p['dense01'], p['dense02']))
-
         # Input
         in_layer =  Input(shape=in_shape)
 
@@ -66,25 +64,34 @@ class ConvArchitecture(Architecture):
         
     def define_space(self):
         self.space = {
-            'dense01' : hp.choice('dense01', [64, 128, 256, 512]),
-            'dense02' : hp.choice('dense02', [0, 64, 128, 256]),
+            'conv01_filters' : hp.choice('conv01_filters', [128, 256]),
+            'conv01_ksize'   : hp.choice('conv01_ksize',   [3, 9, 11]),
+            'conv01_psize'   : hp.choice('conv01_psize',   [2, 3]),
+            'dense01' : hp.choice('dense01', [256, 512]),
+            'dense02' : hp.choice('dense02', [64, 128]),
         }
 
     def define_architecture(self, in_shape, hp_params):
-        print('Testing parameters')
-        print(hp_params)
+
+        print(in_shape)
 
         p = hp_params
         # Input
         in_layer =  Input(shape=in_shape)
 
+        _embedding_dims = 5
+        _maxlen = in_shape[0]
+        emb = Embedding(4, _embedding_dims, input_length=_maxlen)(in_layer)
+
         # Filters
-        _filters = 100
-        _kernel_size = 3
-        _pool_size = 2
-        conv = Conv1D(filters=_filters, kernel_size=_kernel_size, activation='relu', name='conv1')(in_layer)
+        _filters = p['conv01_filters']
+        _kernel_size = p['conv01_ksize']
+        _pool_size = p['conv01_psize']
+        _pool_stride = 2
+
+        conv = Conv1D(filters=_filters, kernel_size=_kernel_size, activation='relu', name='conv1')(emb)
         if _pool_size > 0:
-            conv = MaxPooling1D(pool_size=_pool_size, name='pool1')(conv)
+            conv = MaxPooling1D(pool_size=_pool_size, strides=_pool_stride,  name='pool1')(conv)
 
         # Flat
         flat = Flatten()(conv)
@@ -93,10 +100,11 @@ class ConvArchitecture(Architecture):
         drop = Dropout(.1)(flat)
 
         # Fully connect
-        dense1 = Dense(p['dense1'], activation='relu')(drop)
+        dense1 = Dense(p['dense01'], activation='relu')(drop)
+        dense2 = Dense(p['dense02'], activation='relu')(dense1)
 
         # Output
-        out_layer = Dense(1, activation='sigmoid')(dense1)
+        out_layer = Dense(1, activation='sigmoid')(dense2)
 
         return in_layer, out_layer
 

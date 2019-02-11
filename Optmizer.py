@@ -24,8 +24,8 @@ class Optmizer(object):
     def eval(self, model, data):
         from ml_statistics import BaseStatistics
         x_test, y_test = data
-        print(x_test.shape)
-        print(y_test.shape)
+#        print(x_test.shape)
+#        print(y_test.shape)
         y_pred = model.predict(x_test, batch_size=32)    
         stats = BaseStatistics(y_test, y_pred)
         return stats
@@ -44,24 +44,31 @@ class Optmizer(object):
             # calls.append( C.ModelCheckpoint(args.save_dir + '/weights-{epoch:02d}.h5', save_best_only=True, save_weights_only=True, verbose=1) )
             # calls.append( C.CSVLogger(args.save_dir + '/log.csv') )
             # calls.append( C.TensorBoard(log_dir=args.save_dir + '/tensorboard-logs/{}'.format(actual_partition), batch_size=args.batch_size, histogram_freq=args.debug) )
-            calls.append( C.EarlyStopping(monitor='val_loss', patience=10, verbose=0) )
+            calls.append( C.EarlyStopping(monitor='val_loss', patience=3, verbose=0) )
             calls.append( C.ReduceLROnPlateau(monitor='val_loss', factor=0.1, patience=3, min_lr=0.0001, verbose=0) )
             calls.append( C.LearningRateScheduler(schedule=lambda epoch: 0.001 * (0.9 ** epoch)) )
         #    calls.append( C.LearningRateScheduler(schedule=lambda epoch: 0.001 * np.exp(-epoch / 10.)) )
             return calls
 
-            
+
 
         def f(hp_params):
             nsplits = 3
-            cnt = 0
+            cnt1 = 0
             scores, score = [], None
+            seed = 123
+
+            print('Testing parameters')
+            print(hp_params)
 
             # Folds for train - test (Evaluate Model)
             folds1 = StratifiedShuffleSplit(n_splits=nsplits, random_state=seed)
             for train_index, test_index in folds1.split(X, Y):
                 X_train, X_test = X[train_index], X[test_index]
                 Y_train, Y_test = Y[train_index], Y[test_index]
+                
+                cnt1 += 1
+                cnt2 = 0
 
                 # Folds for train - validation (Guide training phase)
                 folds2 = StratifiedShuffleSplit(n_splits=1, random_state=seed, test_size=0.1)
@@ -70,43 +77,54 @@ class Optmizer(object):
                     y_train, y_val = Y_train[t_index], Y_train[v_index]
                     val_data=(x_val, y_val)
 
-                # Update partition couter
-                cnt += 1
+                    in_layer, out_layer = self.architecture.define_architecture(in_shape, hp_params)
+                    model = Model([in_layer], [out_layer])
+                    model.compile(optimizer='adam', loss='binary_crossentropy')
+#                    print(model.summary)
 
-                # Get Updated Callbacks
-                calls = get_calls()
+                    # Update partition couter
+                    cnt2 += 1
+                    print('Partition', cnt1, cnt2)
 
-                # Train model 
-                model.fit(x_train, y_train, epochs=5, batch_size=32, verbose=1, callbacks=calls, validation_data=val_data)
+                    # Get Updated Callbacks
+                    calls = get_calls()
 
-                # Evaluate model
+                    # Train model
+                    model.fit(X_train, Y_train, epochs=30, batch_size=32, verbose=0,callbacks=calls, validation_data=val_data)
 
+                    stats = self.eval(model, (X_test,Y_test))
+                    score = stats.Mcc
+                    scores.append(score)
+                    print('score', score)
 
+                    K.clear_session()
+                    del model
 
-            scores = []
-            for t_index, v_index in folds.split(X, Y):
-                X_train, X_val = X[t_index], X[v_index]
-                Y_train, Y_val = Y[t_index], Y[v_index]      
-                val_data=(X_val, Y_val)
-
-                calls = get_calls()
-
-                in_layer, out_layer = self.architecture.define_architecture(in_shape, hp_params)
-                model = Model([in_layer], [out_layer])
-                model.compile(optimizer='adam', loss='binary_crossentropy')
-                print(model.summary)
-                
-                model.fit(X_train, Y_train, epochs=5, batch_size=32, verbose=1,callbacks=calls, validation_data=val_data)
-
-                stats = self.eval(model, (X_train,Y_train))
-                score = stats.Mcc
-                scores.append(score)
-
-                K.clear_session()
-                del model
+#            for t_index, v_index in folds.split(X, Y):
+#                X_train, X_val = X[t_index], X[v_index]
+#                Y_train, Y_val = Y[t_index], Y[v_index]      
+#                val_data=(X_val, Y_val)
+#
+#                calls = get_calls()
+#
+#                in_layer, out_layer = self.architecture.define_architecture(in_shape, hp_params)
+#                model = Model([in_layer], [out_layer])
+#                model.compile(optimizer='adam', loss='binary_crossentropy')
+#                print(model.summary)
+#                
+#                model.fit(X_train, Y_train, epochs=5, batch_size=32, verbose=1,callbacks=calls, validation_data=val_data)
+#
+#                stats = self.eval(model, (X_train,Y_train))
+#                score = stats.Mcc
+#                scores.append(score)
+#
+#                K.clear_session()
+#                del model
 
             final_score = np.mean(scores)
+            print('scores', scores)
             print('final_score', final_score)
+            print("")
             return {'loss':final_score, 'status':STATUS_OK}
 
         trials = Trials()
