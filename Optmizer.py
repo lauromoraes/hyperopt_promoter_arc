@@ -3,7 +3,7 @@
 
 import numpy as np
 
-from hyperopt import hp, fmin, tpe, hp, STATUS_OK, Trials
+from hyperopt import hp, fmin, tpe, hp, STATUS_OK, STATUS_FAIL, Trials, space_eval
 from hyperopt.mongoexp import MongoTrials
 
 from keras.models import Model
@@ -24,8 +24,6 @@ class Optmizer(object):
     def eval(self, model, data):
         from ml_statistics import BaseStatistics
         x_test, y_test = data
-#        print(x_test.shape)
-#        print(y_test.shape)
         y_pred = model.predict(x_test, batch_size=32)    
         stats = BaseStatistics(y_test, y_pred)
         return stats
@@ -34,18 +32,18 @@ class Optmizer(object):
     def optimize(self, input_data=None):
         X, Y = input_data
         # X = X.reshape(X.shape[0], X.shape[1], 1)
-        in_shape = (X.shape[1], )
+        in_shape = X.shape
         space = self.architecture.get_space()
         folds = self.setup_folds(X, Y)
 
         def get_calls():
             from keras import callbacks as C
             calls = list()
-            # calls.append( C.ModelCheckpoint(args.save_dir + '/weights-{epoch:02d}.h5', save_best_only=True, save_weights_only=True, verbose=1) )
+            calls.append( C.ModelCheckpoint(args.save_dir + '/weights-{epoch:02d}.h5', save_best_only=True, save_weights_only=True, verbose=1) )
             # calls.append( C.CSVLogger(args.save_dir + '/log.csv') )
             # calls.append( C.TensorBoard(log_dir=args.save_dir + '/tensorboard-logs/{}'.format(actual_partition), batch_size=args.batch_size, histogram_freq=args.debug) )
-            calls.append( C.EarlyStopping(monitor='val_loss', patience=3, verbose=0) )
-            calls.append( C.ReduceLROnPlateau(monitor='val_loss', factor=0.1, patience=3, min_lr=0.0001, verbose=0) )
+            calls.append( C.EarlyStopping(monitor='val_loss', patience=10, verbose=0) )
+            # calls.append( C.ReduceLROnPlateau(monitor='val_loss', factor=0.1, patience=2, min_lr=0.0001, verbose=0) )
             calls.append( C.LearningRateScheduler(schedule=lambda epoch: 0.001 * (0.9 ** epoch)) )
         #    calls.append( C.LearningRateScheduler(schedule=lambda epoch: 0.001 * np.exp(-epoch / 10.)) )
             return calls
@@ -53,13 +51,22 @@ class Optmizer(object):
 
 
         def f(hp_params):
-            nsplits = 3
+            nsplits = 5
             cnt1 = 0
             scores, score = [], None
             seed = 123
 
             print('Testing parameters')
             print(hp_params)
+            if len(trials.trials)>1:
+                for x in trials.trials[:-1]:
+                    space_point_index = dict([(key,value[0]) for key,value in x['misc']['vals'].items() if len(value)>0])
+                    peval = space_eval(space,space_point_index)
+                    if hp_params == peval:
+                        print('>>> Repeated Evaluation')
+                        loss = x['result']['loss']
+                        return {'loss':loss, 'status':STATUS_FAIL}
+
 
             # Folds for train - test (Evaluate Model)
             folds1 = StratifiedShuffleSplit(n_splits=nsplits, random_state=seed)
@@ -78,9 +85,9 @@ class Optmizer(object):
 
                     in_layer, out_layer = self.architecture.define_architecture(in_shape, hp_params)
                     model = Model([in_layer], [out_layer])
-                    model.compile(optimizer='adam', loss='binary_crossentropy')
-                    if cnt1 == 1:
-                        model.summary()
+                    model.compile(optimizer='nadam', loss='binary_crossentropy')
+                    # if cnt1 == 1:
+                    #     model.summary()
 
                     # Update partition couter
                     print('Partition', cnt1)
@@ -89,10 +96,10 @@ class Optmizer(object):
                     calls = get_calls()
 
                     # Train model
-                    model.fit(X_train, Y_train, epochs=30, batch_size=32, verbose=0,callbacks=calls, validation_data=val_data)
+                    model.fit(X_train, Y_train, epochs=50, batch_size=16, verbose=0,callbacks=calls, validation_data=val_data)
 
                     stats = self.eval(model, (X_test,Y_test))
-                    score = stats.Mcc
+                    score = -stats.Mcc
                     scores.append(score)
                     print('score', score)
 
@@ -129,5 +136,6 @@ class Optmizer(object):
         trials = Trials()
 
         best = fmin(f, space, algo=tpe.suggest, trials=trials, max_evals=100)
+        best_params = space_eval(space, best)
 
-        return best
+        return best, best_params
