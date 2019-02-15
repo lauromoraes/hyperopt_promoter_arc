@@ -2,15 +2,20 @@
  # -*- coding: utf-8 -*-
 
 import numpy as np
+import os
 
 from hyperopt import hp, fmin, tpe, hp, STATUS_OK, STATUS_FAIL, Trials, space_eval
 from hyperopt.mongoexp import MongoTrials
 
+from keras import optimizers
 from keras.models import Model
+from keras import backend as K
 
 from sklearn.model_selection import StratifiedShuffleSplit
 
-from keras import backend as K
+save_dir='./result'
+if not os.path.exists(save_dir):
+    os.makedirs(save_dir)
 
 class Optmizer(object):
     def __init__(self, architecture):
@@ -36,15 +41,15 @@ class Optmizer(object):
         space = self.architecture.get_space()
         folds = self.setup_folds(X, Y)
 
-        def get_calls():
+        def get_calls(partition):
             from keras import callbacks as C
             calls = list()
-            calls.append( C.ModelCheckpoint(args.save_dir + '/weights-{epoch:02d}.h5', save_best_only=True, save_weights_only=True, verbose=1) )
+            calls.append( C.ModelCheckpoint(save_dir +'/'+'-partition_{}'.format(partition)+'-epoch_{epoch:02d}-weights.h5', save_best_only=True, save_weights_only=True, verbose=1) )
             # calls.append( C.CSVLogger(args.save_dir + '/log.csv') )
             # calls.append( C.TensorBoard(log_dir=args.save_dir + '/tensorboard-logs/{}'.format(actual_partition), batch_size=args.batch_size, histogram_freq=args.debug) )
             calls.append( C.EarlyStopping(monitor='val_loss', patience=10, verbose=0) )
             # calls.append( C.ReduceLROnPlateau(monitor='val_loss', factor=0.1, patience=2, min_lr=0.0001, verbose=0) )
-            calls.append( C.LearningRateScheduler(schedule=lambda epoch: 0.001 * (0.9 ** epoch)) )
+            calls.append( C.LearningRateScheduler(schedule=lambda epoch: 0.001 * (0.98 ** epoch)) )
         #    calls.append( C.LearningRateScheduler(schedule=lambda epoch: 0.001 * np.exp(-epoch / 10.)) )
             return calls
 
@@ -77,7 +82,7 @@ class Optmizer(object):
                 cnt1 += 1
 
                 # Folds for train - validation (Guide training phase)
-                folds2 = StratifiedShuffleSplit(n_splits=1, random_state=seed, test_size=0.1)
+                folds2 = StratifiedShuffleSplit(n_splits=1, random_state=seed, test_size=0.01)
                 for t_index, v_index in folds2.split(X_train, Y_train):
                     x_train, x_val = X_train[t_index], X_train[v_index]
                     y_train, y_val = Y_train[t_index], Y_train[v_index]
@@ -85,7 +90,7 @@ class Optmizer(object):
 
                     in_layer, out_layer = self.architecture.define_architecture(in_shape, hp_params)
                     model = Model([in_layer], [out_layer])
-                    model.compile(optimizer='nadam', loss='binary_crossentropy')
+                    model.compile(optimizer=optimizers.Adam(lr=0.001), loss='binary_crossentropy')
                     # if cnt1 == 1:
                     #     model.summary()
 
@@ -93,10 +98,10 @@ class Optmizer(object):
                     print('Partition', cnt1)
 
                     # Get Updated Callbacks
-                    calls = get_calls()
+                    calls = get_calls(cnt1)
 
                     # Train model
-                    model.fit(X_train, Y_train, epochs=50, batch_size=16, verbose=0,callbacks=calls, validation_data=val_data)
+                    model.fit(X_train, Y_train, epochs=300, batch_size=32, verbose=0,callbacks=calls, validation_data=val_data)
 
                     stats = self.eval(model, (X_test,Y_test))
                     score = -stats.Mcc
