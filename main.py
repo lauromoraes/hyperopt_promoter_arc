@@ -2,6 +2,7 @@
  # -*- coding: utf-8 -*-
 from Architecture import ArchitectureFactory
 from Optmizer import Optmizer
+from Validation import Validation
 
 def load_dataset(organism):
     from ml_data import SequenceNucsData

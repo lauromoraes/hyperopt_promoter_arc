@@ -21,11 +21,6 @@ class Optmizer(object):
     def __init__(self, architecture):
         self.architecture = architecture
 
-    def setup_folds(self, X, Y, n_splits=2, seed=173):
-        kf = StratifiedShuffleSplit(n_splits=n_splits, random_state=seed)
-        kf.get_n_splits(X, Y)
-        return kf
-
     def eval(self, model, data):
         from ml_statistics import BaseStatistics
         x_test, y_test = data
@@ -33,23 +28,21 @@ class Optmizer(object):
         stats = BaseStatistics(y_test, y_pred)
         return stats
         
-
     def optimize(self, input_data=None):
         X, Y = input_data
         # X = X.reshape(X.shape[0], X.shape[1], 1)
         in_shape = X.shape
         space = self.architecture.get_space()
-        folds = self.setup_folds(X, Y)
 
         def get_calls(partition):
             from keras import callbacks as C
             calls = list()
-            calls.append( C.ModelCheckpoint(save_dir +'/'+'-partition_{}'.format(partition)+'-epoch_{epoch:02d}-weights.h5', save_best_only=True, save_weights_only=True, verbose=1) )
+            # calls.append( C.ModelCheckpoint(save_dir +'/'+'-partition_{}'.format(partition)+'-epoch_{epoch:02d}-weights.h5', save_best_only=True, save_weights_only=True, verbose=1) )
             # calls.append( C.CSVLogger(args.save_dir + '/log.csv') )
             # calls.append( C.TensorBoard(log_dir=args.save_dir + '/tensorboard-logs/{}'.format(actual_partition), batch_size=args.batch_size, histogram_freq=args.debug) )
             calls.append( C.EarlyStopping(monitor='val_loss', patience=10, verbose=0) )
             # calls.append( C.ReduceLROnPlateau(monitor='val_loss', factor=0.1, patience=2, min_lr=0.0001, verbose=0) )
-            calls.append( C.LearningRateScheduler(schedule=lambda epoch: 0.001 * (0.98 ** epoch)) )
+            calls.append( C.LearningRateScheduler(schedule=lambda epoch: 0.001 * (0.9 ** epoch)) )
         #    calls.append( C.LearningRateScheduler(schedule=lambda epoch: 0.001 * np.exp(-epoch / 10.)) )
             return calls
 
@@ -61,17 +54,17 @@ class Optmizer(object):
             scores, score = [], None
             seed = 123
 
-            print('Testing parameters')
-            print(hp_params)
             if len(trials.trials)>1:
                 for x in trials.trials[:-1]:
                     space_point_index = dict([(key,value[0]) for key,value in x['misc']['vals'].items() if len(value)>0])
                     peval = space_eval(space,space_point_index)
                     if hp_params == peval:
-                        print('>>> Repeated Evaluation')
+                        # print('>>> Repeated Evaluation')
                         loss = x['result']['loss']
                         return {'loss':loss, 'status':STATUS_FAIL}
 
+            print('Testing parameters')
+            print(hp_params)
 
             # Folds for train - test (Evaluate Model)
             folds1 = StratifiedShuffleSplit(n_splits=nsplits, random_state=seed)
@@ -82,7 +75,7 @@ class Optmizer(object):
                 cnt1 += 1
 
                 # Folds for train - validation (Guide training phase)
-                folds2 = StratifiedShuffleSplit(n_splits=1, random_state=seed, test_size=0.01)
+                folds2 = StratifiedShuffleSplit(n_splits=1, random_state=17, test_size=0.01)
                 for t_index, v_index in folds2.split(X_train, Y_train):
                     x_train, x_val = X_train[t_index], X_train[v_index]
                     y_train, y_val = Y_train[t_index], Y_train[v_index]
@@ -101,7 +94,7 @@ class Optmizer(object):
                     calls = get_calls(cnt1)
 
                     # Train model
-                    model.fit(X_train, Y_train, epochs=300, batch_size=32, verbose=0,callbacks=calls, validation_data=val_data)
+                    model.fit(X_train, Y_train, epochs=100, batch_size=32, verbose=0,callbacks=calls, validation_data=val_data)
 
                     stats = self.eval(model, (X_test,Y_test))
                     score = -stats.Mcc

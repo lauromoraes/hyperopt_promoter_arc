@@ -7,6 +7,7 @@ from keras.models import Model
 from keras.layers import Input, Flatten, Embedding
 from keras.layers.core import Dense, Dropout, Activation
 from keras.layers.convolutional import Conv1D, MaxPooling1D, Conv2D, MaxPooling2D
+import keras.initializers as initializers
 
 class Architecture(object):
     def __init__(self, input_data):
@@ -213,7 +214,7 @@ class ConvArchitectureHot02(Architecture):
         _kernel_size = p['conv01_ksize']
         _pool_size = p['conv01_psize']
 
-        conv = Conv2D(filters=_filters, kernel_size=(4,_kernel_size), activation='relu', name='conv1')(in_layer)
+        conv = Conv2D(filters=_filters, kernel_size=(4,_kernel_size), activation='relu', name='conv1', kernel_initializer=initializers.he_normal(seed=123))(in_layer)
         if _pool_size > 0:
             conv = MaxPooling2D(pool_size=(1,_pool_size), strides=(1,_pool_size), name='pool1')(conv)
 
