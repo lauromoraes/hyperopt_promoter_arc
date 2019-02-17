@@ -200,12 +200,28 @@ class ConvArchitectureHot02(Architecture):
             'dense01' : hp.choice('dense01', [128]),
         }
 
+    def default_space(self):
+        space = {
+            'conv01_filters' : 100,
+            'conv01_ksize'   : 7,
+            'conv01_psize'   : 0,
+            'conv02_filters' : 150,
+            'conv02_ksize'   : 21,
+            'conv02_psize'   : 12,
+            'dense01' : 128,
+        }
+        return space
+
     def define_architecture(self, in_shape, hp_params):
 
         print('in_shape')
         print(in_shape)
+        # Verify
+        if hp_params == None:
+            p = self.default_space
+        else:
+            p = hp_params
 
-        p = hp_params
         # Input
         in_layer =  Input(shape=(4, in_shape[2], 1))
 

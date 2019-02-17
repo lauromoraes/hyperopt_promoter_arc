@@ -17,14 +17,53 @@ save_dir='./result'
 if not os.path.exists(save_dir):
     os.makedirs(save_dir)
 
-class Validation(object):
-    def __init__(self, architecture):
-        self.architecture = architecture
+class Results(object):
+    def __init__(self):
+        self.metrics, self.results = self.init_results()
 
-    def setup_folds(self, X, Y, n_splits=2, seed=173):
-        kf = StratifiedShuffleSplit(n_splits=n_splits, random_state=seed)
-        kf.get_n_splits(X, Y)
-        return kf
+    def init_results(self):
+        metrics = ('partition', 'mcc', 'f1', 'sn', 'sp', 'acc', 'prec', 'tp', 'fp', 'tn', 'fn')
+        results = { k, [] for k in self.metrics }
+        return metrics, results
+
+    def allocate_stats(stats):
+        results = self.results
+        results['partition'].append(actual_partition)
+        results['mcc'].append(stats.Mcc)
+        results['f1'].append(stats.F1)
+        results['sn'].append(stats.Sn)
+        results['sp'].append(stats.Sp)
+        results['acc'].append(stats.Acc)
+        results['prec'].append(stats.Prec)
+        results['tp'].append(stats.tp)
+        results['fp'].append(stats.fp)
+        results['tn'].append(stats.tn)
+        results['fn'].append(stats.fn)
+
+    def allocate_summarization(self):
+        # Foreach calculated metric
+        for k, v in self.results.items():
+            # Calculate mean and std of partitions results
+            M = np.mean(self.results[k])
+            D = np.std(self.results[k])
+            # Allocate new values on respective column
+            self.results[k].append( M )
+            self.results[k].append( D )
+
+class Validation(object):
+    def __init__(self, architecture, organism):
+        self.organism = organism
+        self.results = Results()
+        self.architecture = architecture
+        self.setup_parameters()
+
+    def setup_parameters(lr=0.001, lr_decay=.9, batch_size=32, epochs=100, debug=1)
+        self.debug = debug
+        self.lr = lr
+        self.lr_decay = lr_decay
+        self.batch_size = batch_size
+        self.epochs = epochs
+        self.stop_patience = 10
 
     def eval(self, model, data):
         from ml_statistics import BaseStatistics
@@ -33,114 +72,129 @@ class Validation(object):
         stats = BaseStatistics(y_test, y_pred)
         return stats
         
+    def get_calls(self, partition):
+        from keras import callbacks as C
+        
+        fname = save_dir+'/'+'org_{}-partition_{}'.format(self.organism, partition)+'-epoch_{epoch:02d}-weights.h5'
+        
+        calls = list()
+        calls.append( C.ModelCheckpoint(fname, save_best_only=True, save_weights_only=True, verbose=1) )
+        calls.append( C.CSVLogger(save_dir+'/log.csv') )
+        calls.append( C.TensorBoard(log_dir=save_dir+'/tensorboard-logs/{}'.format(actual_partition), batch_size=self.batch_size, histogram_freq=self.debug) )
+        calls.append( C.EarlyStopping(monitor='val_loss', patience=self.stop_patience, verbose=0) )
+        # calls.append( C.ReduceLROnPlateau(monitor='val_loss', factor=0.1, patience=2, min_lr=0.0001, verbose=0) )
+        calls.append( C.LearningRateScheduler(schedule=lambda epoch: self.lr * (self.lr_decay ** epoch)) )
+    #    calls.append( C.LearningRateScheduler(schedule=lambda epoch: 0.001 * np.exp(-epoch / 10.)) )
+        return calls
+
+    def get_best_model(partition, x_test, y_test):
+        
+        # Define prefix and sufix filenames      
+        file_prefix = 'org_{}-partition_{}'.format(self.organism, partition)
+        file_sufix = '-weights.h5'
+        
+        # Match all weight files in directory
+        model_weights = [ x for x in os.listdir(self.save_dir+'/') if x.startswith(file_prefix) and x.endswith(file_sufix) ]
+        print 'Testing weigths', model_weight0s
+
+        # Setup local variables
+        best_mcc = -10000.0
+        selected_weight = None
+        selected_stats = None
+
+        # Foreach finded file
+        for i in range(len(model_weights)):
+
+            # Select a weight file
+            weight_file = model_weights[i]
+
+            # Get input and output
+            in_layer, out_layer = self.architecture.define_architecture(self.in_shape, None)
+
+            # Setup model
+            model = Model([in_layer], [out_layer])
+
+            # Load weight
+            model.load_weights(save_dir + '/' + weight_file)
+
+            stats = test(model=model, data=(x_test, y_test))
+            print('MCC = {}'.format(stats.Mcc))
+            
+            # Get current best weigth
+            if best_mcc < stats.Mcc:
+                best_mcc = stats.Mcc
+                selected_weight = weight_file
+                selected_stats = stats
+                print('Selected BEST')
+                print stats
+
+
 
     def optimize(self, input_data=None):
         X, Y = input_data
+
         # X = X.reshape(X.shape[0], X.shape[1], 1)
-        in_shape = X.shape
-        space = self.architecture.get_space()
-        folds = self.setup_folds(X, Y)
+        self.in_shape = X.shape
 
-        def get_calls(partition):
-            from keras import callbacks as C
-            calls = list()
-            calls.append( C.ModelCheckpoint(save_dir +'/'+'-partition_{}'.format(partition)+'-epoch_{epoch:02d}-weights.h5', save_best_only=True, save_weights_only=True, verbose=1) )
-            # calls.append( C.CSVLogger(args.save_dir + '/log.csv') )
-            # calls.append( C.TensorBoard(log_dir=args.save_dir + '/tensorboard-logs/{}'.format(actual_partition), batch_size=args.batch_size, histogram_freq=args.debug) )
-            calls.append( C.EarlyStopping(monitor='val_loss', patience=10, verbose=0) )
-            # calls.append( C.ReduceLROnPlateau(monitor='val_loss', factor=0.1, patience=2, min_lr=0.0001, verbose=0) )
-            calls.append( C.LearningRateScheduler(schedule=lambda epoch: 0.001 * (0.98 ** epoch)) )
-        #    calls.append( C.LearningRateScheduler(schedule=lambda epoch: 0.001 * np.exp(-epoch / 10.)) )
-            return calls
+        # Folds for train - test (Evaluate Model)
+        folds1 = StratifiedShuffleSplit(n_splits=nsplits, random_state=seed)
+        for train_index, test_index in folds1.split(X, Y):
 
+            # Define indexes for training-val set and test set
+            X_train, X_test = X[train_index], X[test_index]
+            Y_train, Y_test = Y[train_index], Y[test_index]
+            
+            # Update partition counter
+            partition_counter += 1
 
-
-        def f(hp_params):
-            nsplits = 5
-            cnt1 = 0
-            scores, score = [], None
-            seed = 123
-
-            print('Testing parameters')
-            print(hp_params)
-            if len(trials.trials)>1:
-                for x in trials.trials[:-1]:
-                    space_point_index = dict([(key,value[0]) for key,value in x['misc']['vals'].items() if len(value)>0])
-                    peval = space_eval(space,space_point_index)
-                    if hp_params == peval:
-                        print('>>> Repeated Evaluation')
-                        loss = x['result']['loss']
-                        return {'loss':loss, 'status':STATUS_FAIL}
-
-
-            # Folds for train - test (Evaluate Model)
-            folds1 = StratifiedShuffleSplit(n_splits=nsplits, random_state=seed)
-            for train_index, test_index in folds1.split(X, Y):
-                X_train, X_test = X[train_index], X[test_index]
-                Y_train, Y_test = Y[train_index], Y[test_index]
-                
-                cnt1 += 1
+            # Train on different initialization seeds
+            seeds = [23, 29, 31]
+            for seed in seeds:
+                print('Partition {} - Training on SEED {}'.format(partition_counter, seed))
 
                 # Folds for train - validation (Guide training phase)
                 folds2 = StratifiedShuffleSplit(n_splits=1, random_state=seed, test_size=0.01)
                 for t_index, v_index in folds2.split(X_train, Y_train):
+
+                    # Define indexes for training set and validation set
                     x_train, x_val = X_train[t_index], X_train[v_index]
                     y_train, y_val = Y_train[t_index], Y_train[v_index]
                     val_data=(x_val, y_val)
 
-                    in_layer, out_layer = self.architecture.define_architecture(in_shape, hp_params)
+                    # Get input and output
+                    in_layer, out_layer = self.architecture.define_architecture(self.in_shape, None)
+
+                    # Setup model
                     model = Model([in_layer], [out_layer])
+
+                    # Compile model
                     model.compile(optimizer=optimizers.Adam(lr=0.001), loss='binary_crossentropy')
-                    # if cnt1 == 1:
-                    #     model.summary()
+
+                    # Print network
+                    if partition_counter == 1:
+                        model.summary()
 
                     # Update partition couter
-                    print('Partition', cnt1)
+                    print('Partition', partition_counter)
 
                     # Get Updated Callbacks
-                    calls = get_calls(cnt1)
+                    calls = self.get_calls(partition_counter)
 
                     # Train model
-                    model.fit(X_train, Y_train, epochs=300, batch_size=32, verbose=0,callbacks=calls, validation_data=val_data)
+                    model.fit(X_train, Y_train, epochs=self.epochs, batch_size=self.batch_size, verbose=0,callbacks=calls, validation_data=val_data)
 
+                    # Evaluate model on test set
                     stats = self.eval(model, (X_test,Y_test))
-                    score = -stats.Mcc
-                    scores.append(score)
-                    print('score', score)
 
+                    # Allocate metrics
+                    self.results.allocate_stats(stats)                    
+                    score = stats.Mcc
+                    print('score', score)
+                    scores.append(score)
+
+                    # Prepare to receive new model
                     K.clear_session()
                     del model
 
-#            for t_index, v_index in folds.split(X, Y):
-#                X_train, X_val = X[t_index], X[v_index]
-#                Y_train, Y_val = Y[t_index], Y[v_index]      
-#                val_data=(X_val, Y_val)
-#
-#                calls = get_calls()
-#
-#                in_layer, out_layer = self.architecture.define_architecture(in_shape, hp_params)
-#                model = Model([in_layer], [out_layer])
-#                model.compile(optimizer='adam', loss='binary_crossentropy')
-#                print(model.summary)
-#                
-#                model.fit(X_train, Y_train, epochs=5, batch_size=32, verbose=1,callbacks=calls, validation_data=val_data)
-#
-#                stats = self.eval(model, (X_train,Y_train))
-#                score = stats.Mcc
-#                scores.append(score)
-#
-#                K.clear_session()
-#                del model
-
-            final_score = np.mean(scores)
-            print('scores', scores)
-            print('final_score', final_score)
-            print("")
-            return {'loss':final_score, 'status':STATUS_OK}
-
-        trials = Trials()
-
-        best = fmin(f, space, algo=tpe.suggest, trials=trials, max_evals=100)
-        best_params = space_eval(space, best)
-
-        return best, best_params
+            # Select best model
+            self.get_best_model(partition_counter, X_test, Y_test)
