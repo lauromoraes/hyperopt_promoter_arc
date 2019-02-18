@@ -53,16 +53,25 @@ def main():
     arc_type = arc_types[3]
     # Produce new Architecture
     arc = arc_factory.get_architecture(arc_type)
-    # Create new Optmizer to test Architecture hyperparameters
-    opt = Optmizer(arc)
-    # View best hyperparameters set for defined Architecture
-    best, best_params = opt.optimize(dataset)
 
-    print('='*20)
-    print(best)
-    print('='*20)
-    print(best_params)
-    print('='*20)
+    # ==== OPTIMIZER ====
+    # # Create new Optmizer to test Architecture hyperparameters
+    # opt = Optmizer(arc)
+    # # View best hyperparameters set for defined Architecture
+    # best, best_params = opt.optimize(dataset)
+    # print('='*20)
+    # print(best)
+    # print('='*20)
+    # print(best_params)
+    # print('='*20)
+
+    # ==== VALIDATION ====
+    # Define experiment object
+    experiment = Validation(arc, org)
+    experiment.setup_parameters(lr=0.001, lr_decay=.98, batch_size=32, epochs=300, debug=1)
+    # Execute cross val
+    experiment.crossval_model(input_data=dataset, nsplits=5, seed=61)
+
 
     print('MAIN - END')
 

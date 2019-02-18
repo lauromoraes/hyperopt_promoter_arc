@@ -44,4 +44,4 @@ luac.out
 
 # Weights
 *.h5
-
+result/*

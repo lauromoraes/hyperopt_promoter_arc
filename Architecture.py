@@ -140,7 +140,7 @@ class ConvArchitectureHot01(Architecture):
 
     def define_architecture(self, in_shape, hp_params):
 
-        print(in_shape)
+        # print(in_shape)
 
         p = hp_params
         # Input
@@ -214,11 +214,11 @@ class ConvArchitectureHot02(Architecture):
 
     def define_architecture(self, in_shape, hp_params):
 
-        print('in_shape')
-        print(in_shape)
+        # print('in_shape')
+        # print(in_shape)
         # Verify
         if hp_params == None:
-            p = self.default_space
+            p = self.default_space()
         else:
             p = hp_params
 
@@ -246,10 +246,10 @@ class ConvArchitectureHot02(Architecture):
         flat = Flatten()(conv)
 
         # Fully connect
-        dense = Dense(p['dense01'], activation='relu')(flat)
+        dense = Dense(p['dense01'], activation='relu', name='fully01')(flat)
 
         # Output
-        out_layer = Dense(1, activation='sigmoid')(dense)
+        out_layer = Dense(1, activation='sigmoid', name='output_node')(dense)
 
         return in_layer, out_layer
 
