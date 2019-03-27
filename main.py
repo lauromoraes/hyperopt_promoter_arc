@@ -33,6 +33,7 @@ def load_dataset2d(organism):
     samples = SequenceNucHotvector(npath, ppath)
 
     X, y = samples.getX(), samples.getY()
+    # X = X.reshape(X.shape[0], X.shape[1], X.shape[2])
     y = y.astype('int32')
     print('Input Shapes\nX: {} | y: {}'.format(X.shape, y.shape))
     return X, y
@@ -48,9 +49,11 @@ def main():
     # Create an Architecture Factory
     arc_factory = ArchitectureFactory(input_data=X)
     # Architecture types
-    arc_types = ('MLP','Conv_emb_01','Conv_hot_01','Conv_hot_02')
+    arc_types = ('MLP','Conv_emb_01','Conv_hot_01','Conv_hot_02','Capsnet_hot_01')
     # Define Architecture type
-    arc_type = arc_types[3]
+    arc_type = arc_types[4]
+    # Define Capsnet flag
+    capsnet = True if arc_type.startswith('Capsnet') else False
     # Produce new Architecture
     arc = arc_factory.get_architecture(arc_type)
 
@@ -68,9 +71,11 @@ def main():
     # ==== VALIDATION ====
     # Define experiment object
     experiment = Validation(arc, org)
-    experiment.setup_parameters(lr=0.001, lr_decay=.98, batch_size=32, epochs=300, debug=1)
+    experiment.setup_parameters(lr=0.001, lr_decay=.9, batch_size=16, epochs=300, stop_patience=10, debug=1)
     # Execute cross val
-    experiment.crossval_model(input_data=dataset, nsplits=5, seed=61)
+    experiment.crossval_model(input_data=dataset, nsplits=5, seed=61, capsnet=capsnet)
+    # experiment._5x2cv(input_data=dataset)
+    # experiment.transfer_learning('Bacillus', 'Ecoli')
 
 
     print('MAIN - END')

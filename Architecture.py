@@ -1,12 +1,13 @@
 #!/usr/bin/python
  # -*- coding: utf-8 -*-
- 
+import numpy as np
 from hyperopt import hp
 
-from keras.models import Model
-from keras.layers import Input, Flatten, Embedding
+from keras.models import Model, Sequential
+from keras.layers import Input, Flatten, Embedding, Reshape
 from keras.layers.core import Dense, Dropout, Activation
 from keras.layers.convolutional import Conv1D, MaxPooling1D, Conv2D, MaxPooling2D
+from capsulelayers import CapsuleLayer, PrimaryCap, Length, Mask
 import keras.initializers as initializers
 
 class Architecture(object):
@@ -230,7 +231,7 @@ class ConvArchitectureHot02(Architecture):
         _kernel_size = p['conv01_ksize']
         _pool_size = p['conv01_psize']
 
-        conv = Conv2D(filters=_filters, kernel_size=(4,_kernel_size), activation='relu', name='conv1', kernel_initializer=initializers.he_normal(seed=123))(in_layer)
+        conv = Conv2D(filters=_filters, kernel_size=(4,_kernel_size), activation='relu', name='conv1')(in_layer)
         if _pool_size > 0:
             conv = MaxPooling2D(pool_size=(1,_pool_size), strides=(1,_pool_size), name='pool1')(conv)
 
@@ -255,6 +256,72 @@ class ConvArchitectureHot02(Architecture):
 
 # =================================================================
 
+class CapsnetArchitectureHot01(Architecture):
+    def __init__(self, input_data):
+        super(CapsnetArchitectureHot01, self).__init__(input_data)
+        
+    def define_space(self):
+        self.space = {
+            'conv01_filters' : hp.choice('conv01_filters', [100]),
+            'conv01_ksize'   : hp.choice('conv01_ksize',   [7]),
+            'conv01_psize'   : hp.choice('conv01_psize',   [0]),
+
+            'conv02_filters' : hp.choice('conv02_filters', [150]),
+            'conv02_ksize'   : hp.choice('conv02_ksize',   [21]),
+            'conv02_psize'   : hp.choice('conv02_psize',   [12]),
+
+            'dense01' : hp.choice('dense01', [128]),
+        }
+
+    def default_space(self):
+        space = {
+            'routings' : 3,
+        }
+        return space
+
+    def define_architecture(self, in_shape, hp_params):
+
+        # print('in_shape')
+        # print(in_shape)
+        # Verify
+        n_class = 1 # Binary classification
+        if hp_params == None:
+            p = self.default_space()
+        else:
+            p = hp_params
+
+        routings = p['routings']
+
+        print('!!!!!!!!!!!!!!!!!')
+        print(in_shape)
+
+        # Input
+        in_layer =  Input(shape=(in_shape[1], in_shape[2],1), name='input_layer')
+
+        conv1 = Conv2D(filters=256, kernel_size=(4,9), strides=1, padding='valid', activation='relu', name='conv1')(in_layer)
+        primarycaps = PrimaryCap(conv1, dim_capsule=8, n_channels=32, kernel_size=(1,9), strides=2, padding='valid')
+        digitcaps = CapsuleLayer(num_capsule=n_class, dim_capsule=16, routings=routings, name='digitcaps')(primarycaps)
+        out_caps = Length(name='capsnet')(digitcaps)
+
+        # Decoder network.
+        y = Input(shape=(n_class,), name='input_decoder')
+        masked_by_y = Mask()([digitcaps, y])  # The true label is used to mask the output of capsule layer. For training
+        masked = Mask()(digitcaps)  # Mask using the capsule with maximal length. For prediction
+
+        # Shared Decoder model in training and prediction
+        decoder = Sequential(name='decoder')
+        decoder.add(Dense(512, activation='relu', input_dim=16*n_class))
+        decoder.add(Dense(1024, activation='relu'))
+        decoder.add(Dense(np.prod((in_shape[1], in_shape[2],1)), activation='sigmoid'))
+        decoder.add(Reshape(target_shape=(in_shape[1], in_shape[2],1), name='out_recon'))
+
+        train_model = Model([in_layer, y], [out_caps, decoder(masked_by_y)])
+
+
+        return train_model
+
+# =================================================================
+
 class ArchitectureFactory(object):
     def __init__(self, input_data):
         self.input_data = input_data
@@ -270,6 +337,8 @@ class ArchitectureFactory(object):
             architecture = ConvArchitectureHot01(input_shape)
         elif architecture_type == 'Conv_hot_02':
             architecture = ConvArchitectureHot02(input_shape)
+        elif architecture_type == 'Capsnet_hot_01':
+            architecture = CapsnetArchitectureHot01(input_shape)
         else:
             print('ERROR: "{}" is not a valid architecture type.'.format(architecture_type))
         return architecture
