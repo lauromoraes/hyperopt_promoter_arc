@@ -188,7 +188,14 @@ class ConvArchitectureHot02(Architecture):
     def __init__(self, input_data):
         super(ConvArchitectureHot02, self).__init__(input_data)
         
-    def define_space(self):
+    def define_space(self, depth=1):
+        self.space = {}
+        for level in range(depth):
+            self.space['conv{}_num_filters'.format(level)] = hp.choice('conv_filters', [0, 128, 256, 512, 1024])
+            # TODO
+            self.space['conv{}_kernel_shape'.format(level)] = hp.choice('conv_shapes', [(2,2), ()])
+            self.space['conv{}_kernel_shape'.format(level)] = hp.choice('conv_filters', [0, 128, 256, 512, 1024])
+
         self.space = {
             'conv01_filters' : hp.choice('conv01_filters', [100]),
             'conv01_ksize'   : hp.choice('conv01_ksize',   [7]),
@@ -213,7 +220,39 @@ class ConvArchitectureHot02(Architecture):
         }
         return space
 
-    def define_architecture(self, in_shape, hp_params):
+    def add_conv_layer(self, _input, branch_idx):
+
+        return
+
+    def set_branches(self, inputs_shapes, params):
+        p = params
+
+        # Define multiple braches of filters
+        banches_input, banches_output, cnt = [], [], 0
+        for shape in inputs_shapes:
+            cnt+=1
+            _input = Input(shape=shape, name='input_{}'.format(cnt))
+            banches_input.append(_input)
+
+
+            if p['conv01_filters'] > 0:
+                _num_filters = p['conv{}_num_filters'.format(cnt)]
+                _kernel_shape = p['conv{}_kernel_shape'.format(cnt)]
+                _pool_shape = p['conv_{}_psize'.format(cnt)]
+                _layer_name = 'conv_{}'
+                _conv1 = Conv2D(
+                    filters=_num_filters, 
+                    kernel_size=_kernel_shape,
+                    activation='relu', 
+                    name='conv1'
+                )(in_layer)
+
+        _filters = p['conv01_filters']
+        _kernel_size = p['conv01_ksize']
+        _pool_size = p['conv01_psize']
+
+
+    def define_architecture(self, inputs_shapes, hp_params):
 
         # print('in_shape')
         # print(in_shape)
@@ -223,8 +262,16 @@ class ConvArchitectureHot02(Architecture):
         else:
             p = hp_params
 
-        # Input
-        in_layer =  Input(shape=(4, in_shape[2], 1))
+        # Define multiple inputs
+        inputs = []
+        cnt = 0
+        for shape in inputs_shapes:
+            inputs.append(Input(shape=shape, name='input_{}'.format(cnt)))
+            cnt+=1
+
+
+
+1
 
         # Filters
         _filters = p['conv01_filters']
