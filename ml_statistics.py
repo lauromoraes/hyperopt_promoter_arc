@@ -20,7 +20,7 @@ class BaseStatistics(object):
             print 'LEN', len(y_pred)
             for i in range(len(y_pred)):
                 print '{0: <10} {1: <10} {2: <10}'.format(y_true[i], y_pred_norm[i], y_pred[i])
-            
+
         tn, fp, fn, tp = confusion_matrix(y_true, y_pred_norm).ravel()
         self.set_hits(tp, fp, tn, fn)
 #        self.set_hits(tn, fn, tp, fp)

@@ -3,10 +3,11 @@
 import numpy as np
 from hyperopt import hp
 
+from keras import layers, models
 from keras.models import Model, Sequential
 from keras.layers import Input, Flatten, Embedding, Reshape
 from keras.layers.core import Dense, Dropout, Activation
-from keras.layers.convolutional import Conv1D, MaxPooling1D, Conv2D, MaxPooling2D
+from keras.layers.convolutional import Conv1D, MaxPooling1D, Conv2D, MaxPooling2D, UpSampling2D, UpSampling1D, AveragePooling1D, AveragePooling2D
 from capsulelayers import CapsuleLayer, PrimaryCap, Length, Mask
 import keras.initializers as initializers
 
@@ -188,13 +189,17 @@ class ConvArchitectureHot02(Architecture):
     def __init__(self, input_data):
         super(ConvArchitectureHot02, self).__init__(input_data)
         
-    def define_space(self, depth=1):
-        self.space = {}
+    def define_space(self, num_branches, depth=1):
+        levels = []
+
         for level in range(depth):
-            self.space['conv{}_num_filters'.format(level)] = hp.choice('conv_filters', [0, 128, 256, 512, 1024])
+            s = {'depth':level}
+            s['conv_{}_num_filters'.format(level)] = hp.choice('conv_filters', [0, 128, 256, 512, 1024])
             # TODO
-            self.space['conv{}_kernel_shape'.format(level)] = hp.choice('conv_shapes', [(2,2), ()])
-            self.space['conv{}_kernel_shape'.format(level)] = hp.choice('conv_filters', [0, 128, 256, 512, 1024])
+            s['conv_{}_kernel_shape'.format(level)] = hp.choice('conv_shapes', [(2,2), ()])
+            s['conv_{}_pool_shape'.format(level)] = hp.choice('conv_filters', [0, 128, 256, 512, 1024])
+
+            levels.append(s)
 
         self.space = {
             'conv01_filters' : hp.choice('conv01_filters', [100]),
@@ -219,10 +224,6 @@ class ConvArchitectureHot02(Architecture):
             'dense01' : 128,
         }
         return space
-
-    def add_conv_layer(self, _input, branch_idx):
-
-        return
 
     def set_branches(self, inputs_shapes, params):
         p = params
@@ -269,10 +270,6 @@ class ConvArchitectureHot02(Architecture):
             inputs.append(Input(shape=shape, name='input_{}'.format(cnt)))
             cnt+=1
 
-
-
-1
-
         # Filters
         _filters = p['conv01_filters']
         _kernel_size = p['conv01_ksize']
@@ -309,15 +306,15 @@ class CapsnetArchitectureHot01(Architecture):
         
     def define_space(self):
         self.space = {
-            'conv01_filters' : hp.choice('conv01_filters', [100]),
-            'conv01_ksize'   : hp.choice('conv01_ksize',   [7]),
-            'conv01_psize'   : hp.choice('conv01_psize',   [0]),
+            'routings' : hp.choice('routings', [1, 2, 3]),
 
-            'conv02_filters' : hp.choice('conv02_filters', [150]),
-            'conv02_ksize'   : hp.choice('conv02_ksize',   [21]),
-            'conv02_psize'   : hp.choice('conv02_psize',   [12]),
+            'conv01_filters' : hp.choice('conv01_filters', [128, 256, 512]),
+            'conv01_ksize'   : hp.choice('conv01_ksize',   [3, 5, 7, 9, 11, 13, 21]),
+            'conv02_ksize'   : hp.choice('conv02_ksize',   [3, 5, 7, 9, 11, 13, 21]),
 
-            'dense01' : hp.choice('dense01', [128]),
+            'dim_capsule1' : hp.choice('dim_capsule1', [2, 4, 8]), # 8
+            'dim_capsule2' : hp.choice('dim_capsule2', [4, 8, 16]), # 16
+            'n_channels' : hp.choice('n_channels', [8, 16, 32]), # 32
         }
 
     def default_space(self):
@@ -332,37 +329,54 @@ class CapsnetArchitectureHot01(Architecture):
         # print(in_shape)
         # Verify
         n_class = 1 # Binary classification
+        print(hp_params)
         if hp_params == None:
             p = self.default_space()
         else:
             p = hp_params
 
         routings = p['routings']
+        conv01_filters = p['conv01_filters']
+        conv01_ksize = p['conv01_ksize']
+        conv02_ksize = p['conv02_ksize']
+        dim_capsule1 = p['dim_capsule1']
+        dim_capsule2 = p['dim_capsule2']
+        n_channels = p['n_channels']
 
-        print('!!!!!!!!!!!!!!!!!')
-        print(in_shape)
+        in_shape = in_shape[1:]
+
+        maxlen = in_shape[0]
 
         # Input
-        in_layer =  Input(shape=(in_shape[1], in_shape[2],1), name='input_layer')
+        in_layer =  Input(shape=(in_shape[0], in_shape[1],1), name='input_layer')
 
-        conv1 = Conv2D(filters=256, kernel_size=(4,9), strides=1, padding='valid', activation='relu', name='conv1')(in_layer)
-        primarycaps = PrimaryCap(conv1, dim_capsule=8, n_channels=32, kernel_size=(1,9), strides=2, padding='valid')
-        digitcaps = CapsuleLayer(num_capsule=n_class, dim_capsule=16, routings=routings, name='digitcaps')(primarycaps)
+        conv1 = Conv2D(filters=conv01_filters, kernel_size=(4,conv01_ksize), strides=1, padding='valid', activation='relu', name='conv1')(in_layer)
+        conv1 = AveragePooling2D((1,3))(conv1)
+        primarycaps = PrimaryCap(conv1, dim_capsule=dim_capsule1, n_channels=n_channels, kernel_size=(1,conv02_ksize), strides=2, padding='valid')
+        digitcaps = CapsuleLayer(num_capsule=n_class, dim_capsule=dim_capsule2, routings=routings, name='digitcaps')(primarycaps)
         out_caps = Length(name='capsnet')(digitcaps)
 
         # Decoder network.
-        y = Input(shape=(n_class,), name='input_decoder')
+        y = Input(shape=(n_class, ), name='input_decoder')
         masked_by_y = Mask()([digitcaps, y])  # The true label is used to mask the output of capsule layer. For training
-        masked = Mask()(digitcaps)  # Mask using the capsule with maximal length. For prediction
+        # masked = Mask()(digitcaps)  # Mask using the capsule with maximal length. For prediction
+
+        x_recon = layers.Dense(512, activation='relu', name='decode_dense_01')(masked_by_y)
+        x_recon = layers.Dense(1024, activation='relu', name='decode_dense_02')(x_recon)
+        # # x_recon = layers.Dropout(.2, name='decode_drop_01')(x_recon)
+        x_recon = layers.Dense(np.prod(in_shape), activation='sigmoid', name='decode_dense_03')(x_recon)
+        x_recon = layers.Reshape(target_shape=in_shape, name='out_recon')(x_recon)
 
         # Shared Decoder model in training and prediction
-        decoder = Sequential(name='decoder')
-        decoder.add(Dense(512, activation='relu', input_dim=16*n_class))
-        decoder.add(Dense(1024, activation='relu'))
-        decoder.add(Dense(np.prod((in_shape[1], in_shape[2],1)), activation='sigmoid'))
-        decoder.add(Reshape(target_shape=(in_shape[1], in_shape[2],1), name='out_recon'))
+        # decoder = Sequential(name='decoder')
+        # decoder.add(Dense(512, activation='relu', input_dim=16*n_class))
+        # decoder.add(Dense(1024, activation='relu'))
+        # x_recon = layers.Dense(maxlen, activation='sigmoid')(x_recon)
+        # decoder.add(Dense(np.prod((in_shape[1], in_shape[2],1)), activation='sigmoid'))
+        # decoder.add(Reshape(target_shape=(in_shape[1], in_shape[2],1), name='out_recon'))
 
-        train_model = Model([in_layer, y], [out_caps, decoder(masked_by_y)])
+        # train_model = Model([in_layer, y], [out_caps, decoder(masked_by_y)])
+        train_model = Model([in_layer, y], [out_caps, x_recon])
 
 
         return train_model
